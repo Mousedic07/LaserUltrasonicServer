@@ -20,6 +20,8 @@ data with Redis progress and resumable gRPC chunks.
   passed device, routing, FFT, upload and SHA-256 tests.
 - `python -B tests/full_chain_test.py` passed MySQL login, two live AcqServer
   load routing, TCP waveform acquisition, gRPC FFT and SHA-256 archive checks.
+- `python -B tests/upload_recovery_test.py` passed AcqServer restart recovery
+  from FileServer's persisted upload offset.
 - See [build and run](docs/BUILD_AND_RUN.md) for full-chain test results,
   dependencies, configuration and launch order.
 

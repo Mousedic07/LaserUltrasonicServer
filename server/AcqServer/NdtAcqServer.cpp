@@ -9,6 +9,7 @@
 #include <iostream>
 #include <memory>
 #include <mutex>
+#include <regex>
 #include <thread>
 #include <winsock2.h>
 
@@ -224,8 +225,70 @@ void uploadTask(std::shared_ptr<Session> session, ndtapp::BoundedQueue<FileChunk
     const auto status = stub->Complete(&context, info, &progress);
     if (!status.ok() || !progress.ok())
         sendSafe(session, 7, {{"status","archive validation failed"}});
-    else sendSafe(session, 7, {{"filename",progress.filename()},{"percent",100.0},
-                               {"speed_bytes_per_sec",0.0},{"status","complete"}});
+    else {
+        std::error_code ignored;
+        fs::remove(spool.parent_path() / (scanId + ".ready"), ignored);
+        sendSafe(session, 7, {{"filename",progress.filename()},{"percent",100.0},
+                              {"speed_bytes_per_sec",0.0},{"status","complete"}});
+    }
+}
+
+void recoverReadyUploads() {
+  try {
+    const fs::path root = ndtapp::env("NDT_SPOOL_ROOT", "spool");
+    fs::create_directories(root);
+    auto stub = ndt::ArchiveService::NewStub(grpc::CreateChannel(
+        ndtapp::address("NDT_FILE_HOST","NDT_FILE_PORT",50054), grpc::InsecureChannelCredentials()));
+    static const std::regex validId("^[0-9a-f]{24}$");
+    for (const auto &entry : fs::directory_iterator(root)) {
+        if (!entry.is_regular_file() || entry.path().extension() != ".ready") continue;
+        const std::string id = entry.path().stem().string();
+        if (!std::regex_match(id, validId)) continue;
+        const fs::path spool = root / (id + ".spool");
+        try {
+            uint64_t total = 0;
+            std::string hash;
+            std::ifstream marker(entry.path()); marker >> total >> hash;
+            if (!marker || hash.size() != 64 || !fs::exists(spool) || fs::file_size(spool) != total)
+                throw std::runtime_error("invalid ready marker or spool size");
+            marker.close();
+            if (ndtapp::sha256File(spool.string()) != hash)
+                throw std::runtime_error("spool SHA-256 changed");
+            ndt::UploadInfo info; info.set_upload_id(id); info.set_total_bytes(total); info.set_sha256(hash);
+            ndt::UploadProgress progress;
+            grpc::ClientContext queryContext; ndtapp::deadline(queryContext, 5000);
+            const auto queried = stub->Query(&queryContext, info, &progress);
+            if (!queried.ok() || !progress.ok()) throw std::runtime_error("FileServer Query failed");
+            uint64_t offset = progress.confirmed_bytes();
+            std::ifstream source(spool, std::ios::binary);
+            std::array<char, 65536> data{};
+            while (offset < total) {
+                source.seekg(std::streamoff(offset));
+                const std::size_t length = std::size_t(std::min<uint64_t>(data.size(), total - offset));
+                source.read(data.data(), std::streamsize(length));
+                if (source.gcount() != std::streamsize(length)) throw std::runtime_error("spool read failed");
+                ndt::UploadChunk chunk; *chunk.mutable_info() = info;
+                chunk.set_offset(offset); chunk.set_data(data.data(), length);
+                ndt::UploadProgress appended;
+                grpc::ClientContext appendContext; ndtapp::deadline(appendContext, 5000);
+                const auto status = stub->Append(&appendContext, chunk, &appended);
+                if (!status.ok() || !appended.ok() || appended.confirmed_bytes() <= offset)
+                    throw std::runtime_error("FileServer Append failed");
+                offset = appended.confirmed_bytes();
+            }
+            ndt::UploadProgress done;
+            grpc::ClientContext completeContext; ndtapp::deadline(completeContext, 30000);
+            const auto finished = stub->Complete(&completeContext, info, &done);
+            if (!finished.ok() || !done.ok()) throw std::runtime_error("FileServer Complete failed");
+            fs::remove(entry.path());
+            std::cout << "Recovered upload " << id << " from disk" << std::endl;
+        } catch (const std::exception &e) {
+            std::cerr << "Upload recovery " << id << ": " << e.what() << '\n';
+        }
+    }
+  } catch (const std::exception &e) {
+      std::cerr << "Upload recovery setup: " << e.what() << '\n';
+  }
 }
 
 void scanTask(std::shared_ptr<Session> session, ScanConfig config) {
@@ -284,7 +347,13 @@ void scanTask(std::shared_ptr<Session> session, ScanConfig config) {
                                   {"completed_points",completed},{"total_points",config.points}});
         }
         device.stop(); out.close();
-        complete = !session->stop && completed == config.points && offset == config.totalBytes;
+        if (!session->stop && completed == config.points && offset == config.totalBytes) {
+            const std::string hash = ndtapp::sha256File(spool.string());
+            std::ofstream marker(spoolDir / (scanId + ".ready"), std::ios::trunc);
+            marker << config.totalBytes << ' ' << hash << '\n'; marker.flush();
+            if (!marker) throw std::runtime_error("cannot persist upload recovery marker");
+            complete = true;
+        }
     } catch (const std::exception &e) {
         deviceConnected = false;
         sendSafe(session, 8, {{"error",e.what()}});
@@ -364,6 +433,7 @@ int main() {
         ndtapp::address("NDT_STATUS_HOST","NDT_STATUS_PORT",50052),
         grpc::InsecureChannelCredentials()));
     std::thread(heartbeatTask, status.get()).detach();
+    std::thread(recoverReadyUploads).detach();
     boost::asio::io_context io;
     tcp::acceptor acceptor(io, {boost::asio::ip::make_address(ndtapp::env("NDT_ACQ_HOST","127.0.0.1")), uint16_t(port)});
     AsioIOServicePool pool(16);

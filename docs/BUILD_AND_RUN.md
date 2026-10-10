@@ -92,6 +92,7 @@ HTTP/TCP. Qt's GUI thread only receives async network signals.
 ```powershell
 python -B tests\simulator_test.py
 python -B tests\service_test.py
+python -B tests\upload_recovery_test.py
 python -B tests\auth_db_failure_test.py
 python -B tests\rpc_failure_test.py
 python -B tests\qt_smoke.py
@@ -103,6 +104,9 @@ python -B tests\full_chain_test.py
 `service_test.py` launches real StatusServer, ProcServer, FileServer and Redis
 processes, then checks low-load routing, tie rotation, stale-node rejection,
 token validation, FFT RPC, upload reconnect/resume and saved SHA-256. The
+`upload_recovery_test.py` runner seeds a partially uploaded file, restarts
+AcqServer, and checks that its disk spool resumes from FileServer's ACK and
+the completed archive hash matches. The
 `full_chain_test.py` runner securely initializes an isolated MySQL data
 directory under `mysql-data`, generates random root and demo passwords,
 starts all processes and tests HTTP login, Acq TCP framing, waveforms, FFT
@@ -115,6 +119,8 @@ unless this runner exits with status 0.
 
 The Qt client and six server executables built successfully. The simulator,
 FFT, TCP fragmentation, Status/Proc/File RPC and Auth login tests passed.
+AcqServer restart upload recovery also passed with a 95,000-byte confirmed
+offset and a matching final SHA-256.
 `full_chain_test.py` exited with code 0 on 2026-10-10 and printed successful
 HTTP login, two live AcqServer instances routed by connection load,
 8 waveform frames, 8 FFT results, Redis-backed upload and matching

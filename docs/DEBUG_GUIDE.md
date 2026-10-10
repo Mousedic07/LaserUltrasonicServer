@@ -31,6 +31,7 @@ Failure triage:
 | Scan error | Three simulator ports, Nyquist check, DAQ sample/channel counts, device socket timeout. |
 | FFT error | ProcServer gRPC address/deadline; `fft_test.exe` isolates algorithm. |
 | Upload error | Redis host/port, FileServer log, `.meta` total, `.part` size and RPC deadline. |
+| Upload pending after Acq restart | Check the spool's `.ready` marker and `data/recovery.log`; restore FileServer and restart AcqServer to run recovery again. |
 | MySQL error | Connector DLL beside AuthServer, DB user/password in environment, schema initialization. |
 
 The original server `.props` files in `origin/master` reference obsolete

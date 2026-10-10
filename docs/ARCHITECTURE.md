@@ -34,6 +34,9 @@ full queues pause acquisition. The raw binary spool remains on AcqServer disk
 until the upload is verified. ProcServer performs an iterative radix-2 FFT;
 FileServer writes 64 KiB or smaller chunks, acknowledges durable offsets,
 stores progress in Redis and verifies SHA-256 before atomic rename.
+The spool has a ready marker after successful acquisition; AcqServer uses it
+on startup to resume a previously interrupted upload from FileServer's
+persisted offset. Incomplete scans have no ready marker.
 
 The network trust boundary is intentionally local for this demo. HTTP, TCP,
 gRPC, MySQL and Redis bind to loopback by default. Deploying across machines

@@ -95,6 +95,31 @@ void fileTest() {
     require(sha256File(root + "/" + done.filename()) == info.sha256(), "saved SHA-256 differs");
     std::cout << "file chunk/resume/SHA-256 passed\n";
 }
+void seedPartialUpload() {
+    const std::string id = env("NDT_RECOVERY_ID", "");
+    const std::string path = env("NDT_RECOVERY_SPOOL", "");
+    require(!id.empty() && !path.empty(), "recovery seed environment missing");
+    std::ifstream input(path, std::ios::binary);
+    require(bool(input), "recovery spool missing");
+    const std::string data((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+    ndt::UploadInfo info; info.set_upload_id(id); info.set_total_bytes(data.size());
+    auto stub = ndt::ArchiveService::NewStub(grpc::CreateChannel(
+        address("NDT_FILE_HOST","NDT_FILE_PORT",50054), grpc::InsecureChannelCredentials()));
+    ndt::UploadProgress start; grpc::ClientContext queryContext; deadline(queryContext);
+    require(stub->Query(&queryContext, info, &start).ok() && start.ok(), "seed Query failed");
+    uint64_t offset = start.confirmed_bytes();
+    const uint64_t half = data.size() / 2;
+    while (offset < half) {
+        const uint64_t size = std::min<uint64_t>(4096, half - offset);
+        ndt::UploadChunk chunk; *chunk.mutable_info() = info;
+        chunk.set_offset(offset); chunk.set_data(data.data() + offset, size);
+        ndt::UploadProgress progress; grpc::ClientContext context; deadline(context);
+        require(stub->Append(&context, chunk, &progress).ok() && progress.ok(), "seed Append failed");
+        offset = progress.confirmed_bytes();
+    }
+    require(offset == half, "seed offset mismatch");
+    std::cout << "partial upload seeded at " << offset << " bytes\n";
+}
 void authTest() {
     auto stub = ndt::AuthService::NewStub(grpc::CreateChannel(
         address("NDT_AUTH_HOST","NDT_AUTH_PORT",50051), grpc::InsecureChannelCredentials()));
@@ -141,6 +166,7 @@ int main(int argc, char **argv) {
         if (mode == "status") statusTest();
         else if (mode == "proc") procTest();
         else if (mode == "file") fileTest();
+        else if (mode == "file_seed") seedPartialUpload();
         else if (mode == "auth") authTest();
         else if (mode == "auth_db_failure") authDatabaseFailureTest();
         else if (mode == "proc_failure") procFailureTest();

@@ -45,6 +45,9 @@ deadlines, typically three seconds, five seconds for FFT/chunk append and
 30 seconds for final SHA-256 verification. Archive chunks are at most
 65,536 bytes. `Query` returns the disk-confirmed offset. A mismatched offset
 returns `offset_mismatch`, prompting re-query.
+On restart AcqServer scans its local `<scan_id>.ready` markers, verifies the
+matching spool's size and SHA-256, and calls `Query`/`Append`/`Complete` from
+the acknowledged offset. It removes a marker only after `Complete` succeeds.
 
 ## Raw archive layout
 

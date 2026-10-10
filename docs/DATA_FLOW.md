@@ -25,5 +25,11 @@
    `.part` to `.ndtbin`, and reports completion. Qt shows the task result.
 
 If the FileServer connection drops mid-upload, AcqServer re-queries the
-server-confirmed offset and retries. A stopped scan leaves a partial spool and
-reports partial status; it is never marked as a completed archive.
+server-confirmed offset and retries. After a complete scan, AcqServer writes
+`<scan_id>.ready` beside the spool with its size and SHA-256. If AcqServer
+restarts before upload completion, it checks this marker, verifies the spool,
+queries FileServer's confirmed offset and resumes from that byte. It removes
+the marker only after FileServer confirms the final hash. Recovery runs once
+on startup, so restart AcqServer again after restoring an unavailable
+FileServer. A stopped scan leaves a partial spool without a ready marker and
+is never marked as a completed archive.
