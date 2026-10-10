@@ -35,23 +35,30 @@ target_include_directories(ndt_proto PUBLIC ${GEN} ${NDT_GRPC_SOURCE}/include
     ${NDT_GRPC_SOURCE}/third_party/protobuf/src ${NDT_GRPC_SOURCE}/third_party/abseil-cpp
     ${NDT_GRPC_SOURCE}/third_party/re2 ${NDT_GRPC_SOURCE}/third_party/address_sorting/include)
 add_library(ndt_common STATIC server/pool/common/NdtCommon.cpp
-    server/pool/common/AsioIOServicePool.cpp server/pool/common/ConfigMgr.cpp)
-target_include_directories(ndt_common PUBLIC server/pool/common ${GEN} ${NDT_BOOST_ROOT}
+    server/pool/common/AsioIOServicePool.cpp server/pool/common/ConfigMgr.cpp
+    server/pool/common/GrpcChannelManager.cpp server/pool/common/LogicThreadPool.cpp)
+target_include_directories(ndt_common PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} server/pool/common ${GEN} ${NDT_BOOST_ROOT}
     ${NDT_GRPC_SOURCE}/include ${NDT_GRPC_SOURCE}/third_party/protobuf/src
     ${NDT_GRPC_SOURCE}/third_party/abseil-cpp ${NDT_GRPC_SOURCE}/third_party/re2
     ${NDT_GRPC_SOURCE}/third_party/address_sorting/include)
 target_link_libraries(ndt_common PUBLIC ndt_proto ${GRPC_DEBUG_LIBS} ws2_32 bcrypt crypt32)
 
-function(ndt_server name source)
-  add_executable(${name} ${source})
+function(ndt_server name)
+  add_executable(${name} ${ARGN})
   target_link_libraries(${name} PRIVATE ndt_common)
   add_custom_command(TARGET ${name} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
       ${NDT_GRPC_BUILD}/third_party/zlib/Debug/zlibd.dll $<TARGET_FILE_DIR:${name}>)
 endfunction()
-ndt_server(GateServer server/GateServer/NdtGateServer.cpp)
+ndt_server(GateServer
+  server/network/GateServer/main.cpp server/network/GateServer/CServer.cpp
+  server/network/GateServer/HttpConnection.cpp server/network/GateServer/AuthGrpcClient.cpp
+  server/network/GateServer/StatusGrpcClient.cpp server/logic/GateServer/LogicSystem.cpp)
 ndt_server(StatusServer server/StatusServer/NdtStatusServer.cpp)
-ndt_server(AuthServer server/AuthServer/NdtAuthServer.cpp)
+ndt_server(AuthServer server/network/AuthServer/main.cpp
+  server/network/AuthServer/AuthGrpcServiceImpl.cpp
+  server/logic/AuthServer/LogicSystem.cpp server/logic/AuthServer/MysqlDao.cpp
+  server/pool/common/MySqlPool.cpp)
 target_include_directories(AuthServer PRIVATE ${NDT_MYSQL_ROOT}/include/jdbc)
 target_link_libraries(AuthServer PRIVATE ${NDT_MYSQL_ROOT}/lib64/vs14/debug/mysqlcppconn.lib)
 add_custom_command(TARGET AuthServer POST_BUILD
