@@ -54,7 +54,10 @@ ndt_server(GateServer
   server/network/GateServer/main.cpp server/network/GateServer/CServer.cpp
   server/network/GateServer/HttpConnection.cpp server/network/GateServer/AuthGrpcClient.cpp
   server/network/GateServer/StatusGrpcClient.cpp server/logic/GateServer/LogicSystem.cpp)
-ndt_server(StatusServer server/StatusServer/NdtStatusServer.cpp)
+ndt_server(StatusServer server/network/StatusServer/main.cpp
+  server/network/StatusServer/StatusGrpcServiceImpl.cpp
+  server/logic/StatusServer/LogicSystem.cpp server/logic/StatusServer/NodeManager.cpp
+  server/logic/StatusServer/SessionManager.cpp)
 ndt_server(AuthServer server/network/AuthServer/main.cpp
   server/network/AuthServer/AuthGrpcServiceImpl.cpp
   server/logic/AuthServer/LogicSystem.cpp server/logic/AuthServer/MysqlDao.cpp
