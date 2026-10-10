@@ -1,4 +1,5 @@
 #include "NdtCommon.h"
+#include "ConfigMgr.h"
 #include "ndt.grpc.pb.h"
 #include <boost/beast.hpp>
 #include <atomic>
@@ -79,7 +80,8 @@ void handle(ndtapp::tcp::socket socket, ndt::AuthService::Stub *auth,
 }
 }
 
-int main() {
+int main(int argc, char **argv) {
+    ndtapp::ConfigMgr::Instance().Load("GateServer", argc, argv);
     const std::string authAddress = ndtapp::address("NDT_AUTH_HOST", "NDT_AUTH_PORT", 50051);
     const std::string statusAddress = ndtapp::address("NDT_STATUS_HOST", "NDT_STATUS_PORT", 50052);
     auto auth = ndt::AuthService::NewStub(grpc::CreateChannel(authAddress, grpc::InsecureChannelCredentials()));

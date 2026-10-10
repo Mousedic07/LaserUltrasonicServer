@@ -1,4 +1,5 @@
 #include "NdtCommon.h"
+#include "ConfigMgr.h"
 #include "ndt.grpc.pb.h"
 #include <filesystem>
 #include <fstream>
@@ -165,7 +166,8 @@ private:
     std::mutex mutex_;
 };
 }
-int main() {
+int main(int argc, char **argv) {
+    ndtapp::ConfigMgr::Instance().Load("FileServer", argc, argv);
     const std::string listen = ndtapp::address("NDT_FILE_HOST", "NDT_FILE_PORT", 50054);
     FileLogic service;
     grpc::ServerBuilder builder;

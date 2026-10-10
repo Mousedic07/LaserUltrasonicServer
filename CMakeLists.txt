@@ -30,13 +30,17 @@ foreach(lib IN LISTS ALL_GRPC_LIBS)
 endforeach()
 list(LENGTH GRPC_DEBUG_LIBS GRPC_LIB_COUNT)
 message(STATUS "Using ${GRPC_LIB_COUNT} local gRPC debug libraries")
-add_library(ndt_common STATIC server/common/NdtCommon.cpp server/common/AsioIOServicePool.cpp
-    ${GEN}/ndt.pb.cc ${GEN}/ndt.grpc.pb.cc)
-target_include_directories(ndt_common PUBLIC server/common ${GEN} ${NDT_BOOST_ROOT}
+add_library(ndt_proto STATIC ${GEN}/ndt.pb.cc ${GEN}/ndt.grpc.pb.cc)
+target_include_directories(ndt_proto PUBLIC ${GEN} ${NDT_GRPC_SOURCE}/include
+    ${NDT_GRPC_SOURCE}/third_party/protobuf/src ${NDT_GRPC_SOURCE}/third_party/abseil-cpp
+    ${NDT_GRPC_SOURCE}/third_party/re2 ${NDT_GRPC_SOURCE}/third_party/address_sorting/include)
+add_library(ndt_common STATIC server/pool/common/NdtCommon.cpp
+    server/pool/common/AsioIOServicePool.cpp server/pool/common/ConfigMgr.cpp)
+target_include_directories(ndt_common PUBLIC server/pool/common ${GEN} ${NDT_BOOST_ROOT}
     ${NDT_GRPC_SOURCE}/include ${NDT_GRPC_SOURCE}/third_party/protobuf/src
     ${NDT_GRPC_SOURCE}/third_party/abseil-cpp ${NDT_GRPC_SOURCE}/third_party/re2
     ${NDT_GRPC_SOURCE}/third_party/address_sorting/include)
-target_link_libraries(ndt_common PUBLIC ${GRPC_DEBUG_LIBS} ws2_32 bcrypt crypt32)
+target_link_libraries(ndt_common PUBLIC ndt_proto ${GRPC_DEBUG_LIBS} ws2_32 bcrypt crypt32)
 
 function(ndt_server name source)
   add_executable(${name} ${source})
@@ -68,6 +72,9 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/server/FileServer/NdtFileServer.cpp)
 endif()
 
 enable_testing()
+add_executable(config_test tests/config_test.cpp)
+target_link_libraries(config_test PRIVATE ndt_common)
+add_test(NAME config COMMAND config_test --config ${CMAKE_CURRENT_SOURCE_DIR}/config/GateServer/config.example.ini)
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tests/fft_test.cpp)
   add_executable(fft_test tests/fft_test.cpp server/ProcServer/Fft.cpp)
   add_test(NAME fft COMMAND fft_test)

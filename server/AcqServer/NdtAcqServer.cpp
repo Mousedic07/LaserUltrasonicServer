@@ -1,4 +1,5 @@
 #include "NdtCommon.h"
+#include "ConfigMgr.h"
 #include "AsioIOServicePool.h"
 #include "ndt.grpc.pb.h"
 #include <atomic>
@@ -427,7 +428,8 @@ void heartbeatTask(ndt::StatusService::Stub *stub) {
 }
 }
 
-int main() {
+int main(int argc, char **argv) {
+    ndtapp::ConfigMgr::Instance().Load("AcqServer", argc, argv);
     const int port = ndtapp::envInt("NDT_ACQ_PORT", 7001);
     auto status = ndt::StatusService::NewStub(grpc::CreateChannel(
         ndtapp::address("NDT_STATUS_HOST","NDT_STATUS_PORT",50052),

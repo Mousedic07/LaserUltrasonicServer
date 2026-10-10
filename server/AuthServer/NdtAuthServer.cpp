@@ -1,4 +1,5 @@
 #include "NdtCommon.h"
+#include "ConfigMgr.h"
 #include "ndt.grpc.pb.h"
 #include <bcrypt.h>
 #include <mysql_driver.h>
@@ -72,7 +73,8 @@ public:
     }
 };
 }
-int main() {
+int main(int argc, char **argv) {
+    ndtapp::ConfigMgr::Instance().Load("AuthServer", argc, argv);
     const std::string listen = ndtapp::address("NDT_AUTH_HOST", "NDT_AUTH_PORT", 50051);
     AuthLogic service;
     grpc::ServerBuilder builder;

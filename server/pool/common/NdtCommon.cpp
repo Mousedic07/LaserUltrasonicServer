@@ -1,5 +1,6 @@
 #include <boost/json/src.hpp>
 #include "NdtCommon.h"
+#include "ConfigMgr.h"
 #include <bcrypt.h>
 #include <fstream>
 #include <iomanip>
@@ -9,13 +10,11 @@
 
 namespace ndtapp {
 std::string env(const char *key, const char *fallback) {
-    const char *found = std::getenv(key);
-    return found && *found ? found : fallback;
+    return ConfigMgr::Instance().Legacy(key, fallback);
 }
 int envInt(const char *key, int fallback) {
-    const char *found = std::getenv(key);
-    if (!found || !*found) return fallback;
-    try { return std::stoi(found); } catch (...) { return fallback; }
+    try { return std::stoi(ConfigMgr::Instance().Legacy(key, std::to_string(fallback))); }
+    catch (...) { return fallback; }
 }
 std::string address(const char *hostKey, const char *portKey, int fallbackPort) {
     return env(hostKey, "127.0.0.1") + ":" + std::to_string(envInt(portKey, fallbackPort));

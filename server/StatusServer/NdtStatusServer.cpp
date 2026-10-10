@@ -1,4 +1,5 @@
 #include "NdtCommon.h"
+#include "ConfigMgr.h"
 #include "ndt.grpc.pb.h"
 #include <algorithm>
 #include <iostream>
@@ -73,7 +74,8 @@ private:
 };
 }
 
-int main() {
+int main(int argc, char **argv) {
+    ndtapp::ConfigMgr::Instance().Load("StatusServer", argc, argv);
     const std::string listen = ndtapp::address("NDT_STATUS_HOST", "NDT_STATUS_PORT", 50052);
     StatusLogic service;
     grpc::ServerBuilder builder;

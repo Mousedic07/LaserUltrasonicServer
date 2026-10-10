@@ -1,4 +1,5 @@
 #include "NdtCommon.h"
+#include "ConfigMgr.h"
 #include "Fft.h"
 #include "ndt.grpc.pb.h"
 #include <iostream>
@@ -23,7 +24,8 @@ public:
     }
 };
 }
-int main() {
+int main(int argc, char **argv) {
+    ndtapp::ConfigMgr::Instance().Load("ProcServer", argc, argv);
     const std::string listen = ndtapp::address("NDT_PROC_HOST", "NDT_PROC_PORT", 50053);
     ProcessLogic service;
     grpc::ServerBuilder builder;
