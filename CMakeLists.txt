@@ -36,7 +36,8 @@ target_include_directories(ndt_proto PUBLIC ${GEN} ${NDT_GRPC_SOURCE}/include
     ${NDT_GRPC_SOURCE}/third_party/re2 ${NDT_GRPC_SOURCE}/third_party/address_sorting/include)
 add_library(ndt_common STATIC server/pool/common/NdtCommon.cpp
     server/pool/common/AsioIOServicePool.cpp server/pool/common/ConfigMgr.cpp
-    server/pool/common/GrpcChannelManager.cpp server/pool/common/LogicThreadPool.cpp)
+    server/pool/common/GrpcChannelManager.cpp server/pool/common/LogicThreadPool.cpp
+    server/network/common/NdtFrameCodec.cpp)
 target_include_directories(ndt_common PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} server/pool/common ${GEN} ${NDT_BOOST_ROOT}
     ${NDT_GRPC_SOURCE}/include ${NDT_GRPC_SOURCE}/third_party/protobuf/src
     ${NDT_GRPC_SOURCE}/third_party/abseil-cpp ${NDT_GRPC_SOURCE}/third_party/re2
@@ -70,9 +71,16 @@ add_custom_command(TARGET AuthServer POST_BUILD
     ${NDT_MYSQL_ROOT}/lib64/libssl-3-x64.dll
     ${NDT_MYSQL_ROOT}/lib64/libcrypto-3-x64.dll
     $<TARGET_FILE_DIR:AuthServer>)
-if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/server/AcqServer/NdtAcqServer.cpp)
-  ndt_server(AcqServer server/AcqServer/NdtAcqServer.cpp)
-endif()
+ndt_server(AcqServer
+  server/network/AcqServer/main.cpp server/network/AcqServer/CServer.cpp
+  server/network/AcqServer/CSession.cpp server/network/AcqServer/MsgNode.cpp
+  server/network/AcqServer/StatusGrpcClient.cpp
+  server/network/AcqServer/ProcGrpcClient.cpp
+  server/network/AcqServer/FileGrpcClient.cpp
+  server/logic/AcqServer/LogicSystem.cpp server/logic/AcqServer/ScanLogic.cpp
+  server/logic/AcqServer/ScanTask.cpp server/logic/AcqServer/DeviceBridge.cpp
+  server/logic/AcqServer/FftTask.cpp server/logic/AcqServer/FileUploadTask.cpp)
+target_include_directories(AcqServer PRIVATE server/network/common)
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/server/ProcServer/NdtProcServer.cpp)
   ndt_server(ProcServer server/ProcServer/NdtProcServer.cpp)
   target_sources(ProcServer PRIVATE server/ProcServer/Fft.cpp)
