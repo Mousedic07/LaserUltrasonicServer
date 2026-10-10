@@ -1,3 +1,35 @@
+# Distributed Laser Ultrasound NDT Demo
+
+This repository is a secondary development of
+[secondtonone1/llfcchat](https://github.com/secondtonone1/llfcchat). The
+upstream GPL-3.0 `LICENSE` and original course README remain below. The NDT
+build selects six independent C++ services and a Qt 5.9.9 Widgets client;
+the original chat UI and registration routes are excluded from that build.
+
+The demo controls TCP-connected Python laser, stage and DAQ simulators,
+streams multichannel waveforms, calculates FFT using gRPC, and archives raw
+data with Redis progress and resumable gRPC chunks.
+
+## NDT build and tests
+
+- Open `client/ndt_client/ndt_client.pro` in Qt Creator 4.11.0 after checking
+  the selected Kit's compiler/debugger warnings.
+- `scripts/build_client_msvc64.bat` built the Qt 5.9.9 MSVC x64 client here.
+- `scripts/build_server_msvc64.bat` built all six VS2022 x64 C++ services here.
+- `python -B tests/simulator_test.py` and `python -B tests/service_test.py`
+  passed device, routing, FFT, upload and SHA-256 tests.
+- `python -B tests/full_chain_test.py` passed MySQL login, two live AcqServer
+  load routing, TCP waveform acquisition, gRPC FFT and SHA-256 archive checks.
+- See [build and run](docs/BUILD_AND_RUN.md) for full-chain test results,
+  dependencies, configuration and launch order.
+
+Documentation: [architecture](docs/ARCHITECTURE.md),
+[data flow](docs/DATA_FLOW.md), [network protocol](docs/NETWORK_PROTOCOL.md),
+[source reuse](docs/LLFC_REUSE.md), [debug guide](docs/DEBUG_GUIDE.md), and
+[local environment audit](docs/ENVIRONMENT.md).
+
+## Original llfcchat README
+
 # llfcchat
 
 #### 介绍

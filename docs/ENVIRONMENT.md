@@ -30,9 +30,9 @@ qmake/build is the final compiler compatibility check.
 
 ## Original server project paths
 
-The original `.props` files refer to `D:\cppsoft\...` for Boost, gRPC,
+The original `.props` files (preserved in `origin/master`) refer to `D:\cppsoft\...` for Boost, gRPC,
 jsoncpp, MySQL Connector and hiredis. Those paths do not exist here.
 Some source files also embed Redis passwords and fixed addresses. They must
-not be used unchanged. Local source and some built gRPC debug libraries are
-present under `D:\boost`, but there is no validated CMake package set yet.
-The original Visual Studio solutions cannot be treated as reproducible builds.
+not be used unchanged. Local gRPC debug libraries under `D:\boost` were linked
+successfully with VS2022 14.44, using the new CMake configuration. The
+original Visual Studio solutions cannot be treated as reproducible builds.

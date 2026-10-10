@@ -111,6 +111,28 @@ void authTest() {
     require(!verify("missing-user", password).ok(), "unknown user succeeded");
     std::cout << "auth login/wrong password/unknown user passed\n";
 }
+void authDatabaseFailureTest() {
+    auto stub = ndt::AuthService::NewStub(grpc::CreateChannel(
+        address("NDT_AUTH_HOST","NDT_AUTH_PORT",50051), grpc::InsecureChannelCredentials()));
+    ndt::LoginRequest request; request.set_username("demo"); request.set_password("unused");
+    ndt::LoginReply reply; grpc::ClientContext context; deadline(context, 5000);
+    auto result = stub->Verify(&context, request, &reply);
+    require(!result.ok() && result.error_code() == grpc::StatusCode::UNAVAILABLE,
+            "database failure was not surfaced as UNAVAILABLE");
+    std::cout << "auth database failure passed\n";
+}
+void procFailureTest() {
+    auto stub = ndt::ProcessService::NewStub(grpc::CreateChannel(
+        address("NDT_PROC_HOST","NDT_PROC_PORT",50053), grpc::InsecureChannelCredentials()));
+    ndt::Waveform request; request.set_sample_rate_hz(20e6);
+    request.add_samples(1); request.add_samples(0);
+    ndt::Spectrum reply; grpc::ClientContext context; deadline(context, 1500);
+    const auto start = std::chrono::steady_clock::now();
+    const auto result = stub->Fft(&context, request, &reply);
+    const auto elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+    require(!result.ok() && elapsed < 4.0, "unavailable ProcServer hung or falsely succeeded");
+    std::cout << "ProcServer unavailability deadline passed\n";
+}
 }
 int main(int argc, char **argv) {
     try {
@@ -120,6 +142,8 @@ int main(int argc, char **argv) {
         else if (mode == "proc") procTest();
         else if (mode == "file") fileTest();
         else if (mode == "auth") authTest();
+        else if (mode == "auth_db_failure") authDatabaseFailureTest();
+        else if (mode == "proc_failure") procFailureTest();
         else throw std::runtime_error("unknown mode");
         return 0;
     } catch (const std::exception &e) {
