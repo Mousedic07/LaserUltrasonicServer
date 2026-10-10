@@ -1,4 +1,15 @@
 build-llfcchat*
+/build-client/
+/build-server/
+/build-server-v142/
+/build-server-v143/
+/build-server-v144/
+/build-tests/
+/server-build.log
+/client-build.log
+/data/
+/spool/
+/mysql-data/
 Debug
 x64
 .vs

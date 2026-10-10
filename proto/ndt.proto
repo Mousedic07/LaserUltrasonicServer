@@ -1,0 +1,68 @@
+syntax = "proto3";
+package ndt;
+
+service AuthService {
+  rpc Verify(LoginRequest) returns (LoginReply);
+}
+message LoginRequest { string username = 1; string password = 2; }
+message LoginReply { bool ok = 1; uint64 user_id = 2; string role = 3; string error = 4; }
+
+service StatusService {
+  rpc Heartbeat(NodeHeartbeat) returns (Ack);
+  rpc Route(RouteRequest) returns (RouteReply);
+  rpc Validate(SessionRequest) returns (SessionReply);
+}
+message Ack { bool ok = 1; string error = 2; }
+message NodeHeartbeat {
+  string node_id = 1;
+  string host = 2;
+  uint32 port = 3;
+  uint32 active_connections = 4;
+  uint32 running_tasks = 5;
+  bool device_connected = 6;
+  bool available = 7;
+  int64 heartbeat_timestamp_ms = 8;
+}
+message RouteRequest { uint64 user_id = 1; }
+message RouteReply { bool ok = 1; string host = 2; uint32 port = 3; string token = 4; string error = 5; string node_id = 6; }
+message SessionRequest { string token = 1; }
+message SessionReply { bool ok = 1; uint64 user_id = 2; string error = 3; }
+
+service ProcessService {
+  rpc Fft(Waveform) returns (Spectrum);
+}
+message Waveform {
+  string scan_id = 1;
+  uint64 frame_id = 2;
+  uint32 channel_id = 3;
+  int64 timestamp_ms = 4;
+  double position_x_mm = 5;
+  double position_y_mm = 6;
+  double sample_rate_hz = 7;
+  repeated float samples = 8;
+}
+message Spectrum {
+  string scan_id = 1;
+  uint64 frame_id = 2;
+  uint32 channel_id = 3;
+  repeated double frequency_bins_hz = 4;
+  repeated double amplitude_spectrum = 5;
+  double dominant_frequency_hz = 6;
+}
+
+service ArchiveService {
+  rpc Query(UploadInfo) returns (UploadProgress);
+  rpc Append(UploadChunk) returns (UploadProgress);
+  rpc Complete(UploadInfo) returns (UploadProgress);
+}
+message UploadInfo { string upload_id = 1; uint64 total_bytes = 2; string sha256 = 3; }
+message UploadChunk { UploadInfo info = 1; uint64 offset = 2; bytes data = 3; }
+message UploadProgress {
+  bool ok = 1;
+  uint64 confirmed_bytes = 2;
+  uint64 total_bytes = 3;
+  double speed_bytes_per_sec = 4;
+  string status = 5;
+  string filename = 6;
+  string error = 7;
+}
