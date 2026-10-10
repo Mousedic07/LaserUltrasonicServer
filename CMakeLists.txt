@@ -81,20 +81,22 @@ ndt_server(AcqServer
   server/logic/AcqServer/ScanTask.cpp server/logic/AcqServer/DeviceBridge.cpp
   server/logic/AcqServer/FftTask.cpp server/logic/AcqServer/FileUploadTask.cpp)
 target_include_directories(AcqServer PRIVATE server/network/common)
-if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/server/ProcServer/NdtProcServer.cpp)
-  ndt_server(ProcServer server/ProcServer/NdtProcServer.cpp)
-  target_sources(ProcServer PRIVATE server/ProcServer/Fft.cpp)
-endif()
-if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/server/FileServer/NdtFileServer.cpp)
-  ndt_server(FileServer server/FileServer/NdtFileServer.cpp)
-endif()
+ndt_server(ProcServer server/network/ProcServer/main.cpp
+  server/network/ProcServer/ProcGrpcServiceImpl.cpp
+  server/logic/ProcServer/LogicSystem.cpp server/logic/ProcServer/FftLogic.cpp
+  server/logic/ProcServer/Fft.cpp)
+ndt_server(FileServer server/network/FileServer/main.cpp
+  server/network/FileServer/FileGrpcServiceImpl.cpp
+  server/logic/FileServer/LogicSystem.cpp server/logic/FileServer/ArchiveLogic.cpp
+  server/logic/FileServer/FileManager.cpp
+  server/pool/common/RedisConPool.cpp server/pool/common/RedisMgr.cpp)
 
 enable_testing()
 add_executable(config_test tests/config_test.cpp)
 target_link_libraries(config_test PRIVATE ndt_common)
 add_test(NAME config COMMAND config_test --config ${CMAKE_CURRENT_SOURCE_DIR}/config/GateServer/config.example.ini)
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tests/fft_test.cpp)
-  add_executable(fft_test tests/fft_test.cpp server/ProcServer/Fft.cpp)
+  add_executable(fft_test tests/fft_test.cpp server/logic/ProcServer/Fft.cpp)
   add_test(NAME fft COMMAND fft_test)
 endif()
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tests/rpc_probe.cpp)
