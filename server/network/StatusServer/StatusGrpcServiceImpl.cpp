@@ -11,8 +11,4 @@ grpc::Status StatusGrpcServiceImpl::Route(grpc::ServerContext *,
     const ndt::RouteRequest *request, ndt::RouteReply *reply) {
     logic_.Route(*request, *reply); return grpc::Status::OK;
 }
-grpc::Status StatusGrpcServiceImpl::Validate(grpc::ServerContext *,
-    const ndt::SessionRequest *request, ndt::SessionReply *reply) {
-    logic_.Validate(*request, *reply); return grpc::Status::OK;
-}
 }

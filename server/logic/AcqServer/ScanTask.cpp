@@ -12,11 +12,19 @@
 
 namespace ndtapp::acq {
 namespace fs = std::filesystem;
+namespace {
+struct ScanGuard {
+    std::shared_ptr<CSession> session;
+    std::atomic<uint32_t> &running;
+    ~ScanGuard() { --running; session->EndScan(); }
+};
+}
 void ScanTask::Run(std::shared_ptr<CSession> session, ScanConfig config,
                    ProcGrpcClient &proc, FileGrpcClient &file,
                    std::atomic<bool> &deviceConnected,
                    std::atomic<uint32_t> &runningTasks) {
     ++runningTasks;
+    ScanGuard guard{session, runningTasks};
     const std::string scanId = randomHex(12);
     const fs::path spoolDir = ConfigMgr::Instance().Get("Storage", "SpoolRoot", "spool", "NDT_SPOOL_ROOT");
     fs::create_directories(spoolDir);
@@ -25,9 +33,17 @@ void ScanTask::Run(std::shared_ptr<CSession> session, ScanConfig config,
     BoundedQueue<ndt::Waveform> fftQueue(cfg.GetInt("Queue", "FftCapacity", 8));
     BoundedQueue<FileChunk> fileQueue(cfg.GetInt("Queue", "FileCapacity", 8));
     std::atomic<bool> complete{false};
-    std::thread fftWorker(FftTask::Run, session, std::ref(fftQueue), std::ref(proc));
-    std::thread fileWorker(FileUploadTask::Run, session, std::ref(fileQueue), std::ref(file),
-                           scanId, config.totalBytes, spool, std::cref(complete));
+    std::thread fftWorker, fileWorker;
+    try {
+        fftWorker = std::thread(FftTask::Run, session, std::ref(fftQueue), std::ref(proc));
+        fileWorker = std::thread(FileUploadTask::Run, session, std::ref(fileQueue), std::ref(file),
+                                 scanId, config.totalBytes, spool, std::cref(complete));
+    } catch (...) {
+        fftQueue.close(); fileQueue.close();
+        if (fftWorker.joinable()) fftWorker.join();
+        if (fileWorker.joinable()) fileWorker.join();
+        throw;
+    }
     uint64_t offset = 0, frameId = 0;
     uint32_t completed = 0;
     try {
@@ -89,7 +105,5 @@ void ScanTask::Run(std::shared_ptr<CSession> session, ScanConfig config,
     session->Send(6, {{"state",complete ? "complete" : "stopped"},
                       {"scan_id",scanId},{"completed_points",completed},
                       {"total_points",config.points}});
-    --runningTasks;
-    session->EndScan();
 }
 }

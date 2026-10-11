@@ -1,9 +1,11 @@
 build-llfcchat*
 /build-client/
+/build-client-integration/
 /build-server/
 /build-server-v142/
 /build-server-v143/
 /build-server-v144/
+/build-server-clean/
 /build-tests/
 /server-build.log
 /client-build.log

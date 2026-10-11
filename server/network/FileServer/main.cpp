@@ -3,6 +3,7 @@
 #include "RedisConPool.h"
 #include "RedisMgr.h"
 #include "FileGrpcServiceImpl.h"
+#include "server/network/common/GrpcServerRunner.h"
 #include <iostream>
 
 int main(int argc, char **argv) {
@@ -20,6 +21,6 @@ int main(int argc, char **argv) {
         auto server = builder.BuildAndStart();
         if (!server) throw std::runtime_error("FileServer bind failed: " + listen);
         std::cout << "FileServer listening on " << listen << std::endl;
-        server->Wait();
+        ndtapp::WaitForGrpcShutdown(*server);
     } catch (const std::exception &e) { std::cerr << e.what() << '\n'; return 1; }
 }

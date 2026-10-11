@@ -34,6 +34,7 @@ HttpResult LogicSystem::Login(const std::string &body) {
             {"error",routed.ok() ? route.error() : "StatusServer unavailable"}}};
     return {http::status::ok, {{"ok",true},{"user_id",login.user_id()},
         {"role",login.role()},{"host",route.host()},{"port",route.port()},
-        {"token",route.token()},{"node_id",route.node_id()}}};
+        {"token",jwt_.Issue(login.user_id(), login.role(), route.node_id())},
+        {"node_id",route.node_id()}}};
 }
 }

@@ -10,7 +10,6 @@ message LoginReply { bool ok = 1; uint64 user_id = 2; string role = 3; string er
 service StatusService {
   rpc Heartbeat(NodeHeartbeat) returns (Ack);
   rpc Route(RouteRequest) returns (RouteReply);
-  rpc Validate(SessionRequest) returns (SessionReply);
 }
 message Ack { bool ok = 1; string error = 2; }
 message NodeHeartbeat {
@@ -24,9 +23,14 @@ message NodeHeartbeat {
   int64 heartbeat_timestamp_ms = 8;
 }
 message RouteRequest { uint64 user_id = 1; }
-message RouteReply { bool ok = 1; string host = 2; uint32 port = 3; string token = 4; string error = 5; string node_id = 6; }
-message SessionRequest { string token = 1; }
-message SessionReply { bool ok = 1; uint64 user_id = 2; string error = 3; }
+message RouteReply {
+  bool ok = 1;
+  string host = 2;
+  uint32 port = 3;
+  reserved 4; // Old random session token. GateServer now signs a JWT.
+  string error = 5;
+  string node_id = 6;
+}
 
 service ProcessService {
   rpc Fft(Waveform) returns (Spectrum);

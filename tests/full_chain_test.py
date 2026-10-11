@@ -1,8 +1,11 @@
 """Local end-to-end test: MySQL -> HTTP/gRPC -> TCP devices -> FFT/file."""
+import base64
 import hashlib
+import hmac
 import json
 import os
 import re
+import secrets
 import socket
 import struct
 import subprocess
@@ -68,6 +71,32 @@ def login(password):
         return error.code, json.load(error)
 
 
+def verify_jwt(token, secret, node_id, user_id):
+    parts = token.split(".")
+    assert len(parts) == 3
+    decode = lambda part: base64.urlsafe_b64decode(part + "=" * (-len(part) % 4))
+    header = json.loads(decode(parts[0]))
+    claims = json.loads(decode(parts[1]))
+    signature = hmac.new(secret.encode(), ".".join(parts[:2]).encode(), hashlib.sha256).digest()
+    assert header == {"alg": "HS256", "typ": "JWT"}
+    assert hmac.compare_digest(signature, decode(parts[2]))
+    assert claims["user_id"] == user_id and claims["sub"] == str(user_id)
+    assert claims["node_id"] == node_id and claims["role"] == "operator"
+    assert claims["iss"] == "LaserUltrasonicServer" and claims["aud"] == "ndt-acq"
+    assert claims["iat"] <= time.time() < claims["exp"] <= claims["iat"] + 300
+
+
+def expect_hello_rejected(host, port, token):
+    with socket.create_connection((host, port), timeout=5) as sock:
+        sock.settimeout(5)
+        send_frame(sock, 1, {"token": token})
+        try:
+            kind, reply = recv_frame(sock)
+            assert kind == 8 and "JWT" in reply.get("error", ""), reply
+        except ConnectionError:
+            pass  # The server may close immediately after rejecting the Hello.
+
+
 def create_mysql(log):
     parent = ROOT / "mysql-data"
     parent.mkdir(exist_ok=True)
@@ -96,6 +125,17 @@ def mysql_exec(sql, password):
                    stdout=subprocess.DEVNULL)
 
 
+def mysql_auth_connection_ids(password):
+    env = os.environ.copy()
+    env["MYSQL_PWD"] = password
+    output = subprocess.check_output(
+        [str(MYSQL_HOME / "bin" / "mysql.exe"), "--protocol=tcp", "-N", "-B",
+         "-h", "127.0.0.1", "-P", "13306", "-u", "root", "-e",
+         "SELECT ID FROM information_schema.PROCESSLIST WHERE USER='root' AND DB='ndt'"],
+        env=env, text=True, timeout=15)
+    return sorted(output.split())
+
+
 def main():
     (ROOT / "data").mkdir(exist_ok=True)
     log = (ROOT / "data" / "full-chain.log").open("w", encoding="utf-8")
@@ -109,16 +149,19 @@ def main():
                    NDT_REDIS_HOST="127.0.0.1", NDT_REDIS_PORT="16379",
                    NDT_AUTH_PORT="15051", NDT_STATUS_PORT="15052", NDT_PROC_PORT="15053", NDT_FILE_PORT="15054",
                    NDT_GATE_PORT="18080", NDT_FILE_ROOT=str(ROOT / "data" / "archive"),
-                   NDT_SPOOL_ROOT=str(ROOT / "spool"))
+                   NDT_SPOOL_ROOT=str(ROOT / "spool"),
+                   NDT_JWT_SECRET=secrets.token_hex(32))
         def launch(command, port, custom=None):
             proc = subprocess.Popen(command, cwd=ROOT, env=custom or env, stdout=log,
                                     stderr=subprocess.STDOUT, creationflags=subprocess.CREATE_NO_WINDOW)
             processes.append(proc)
             wait_port(port, proc)
+            return proc
 
-        launch([str(MYSQL_HOME / "bin" / "mysqld.exe"), "--no-defaults", "--console",
-                f"--basedir={MYSQL_HOME}", f"--datadir={mysql_data}", "--port=13306",
-                "--bind-address=127.0.0.1", "--mysqlx=OFF"], 13306)
+        mysql_command = [str(MYSQL_HOME / "bin" / "mysqld.exe"), "--no-defaults", "--console",
+                         f"--basedir={MYSQL_HOME}", f"--datadir={mysql_data}", "--port=13306",
+                         "--bind-address=127.0.0.1", "--mysqlx=OFF"]
+        mysql_process = launch(mysql_command, 13306)
         admin_password = os.urandom(24).hex()
         mysql_exec(f"ALTER USER 'root'@'localhost' IDENTIFIED BY '{admin_password}';", temporary_password)
         env["NDT_MYSQL_PASSWORD"] = admin_password
@@ -138,6 +181,20 @@ def main():
         launch([str(BIN / "ProcServer.exe")], 15053)
         launch([str(BIN / "FileServer.exe")], 15054)
         subprocess.run([str(BIN / "rpc_probe.exe"), "auth"], cwd=ROOT, env=env, check=True, timeout=20)
+        pooled_ids = mysql_auth_connection_ids(admin_password)
+        assert pooled_ids, "AuthServer did not retain an idle MySQL connection"
+        subprocess.run([str(BIN / "rpc_probe.exe"), "auth"], cwd=ROOT, env=env, check=True, timeout=20)
+        assert mysql_auth_connection_ids(admin_password) == pooled_ids, "MySQL connection was not reused"
+        print("MySQL connection reused across Auth RPCs")
+        shutdown_env = env.copy()
+        shutdown_env["MYSQL_PWD"] = admin_password
+        subprocess.run([str(MYSQL_HOME / "bin" / "mysqladmin.exe"), "--protocol=tcp",
+                        "-h", "127.0.0.1", "-P", "13306", "-u", "root", "shutdown"],
+                       env=shutdown_env, check=True, timeout=20, stdout=subprocess.DEVNULL)
+        mysql_process.wait(timeout=20)
+        launch(mysql_command, 13306)
+        subprocess.run([str(BIN / "rpc_probe.exe"), "auth"], cwd=ROOT, env=env, check=True, timeout=20)
+        print("MySQL pooled connection recovered after database restart")
         for node, port, base in (("acq1", 17001, 19000), ("acq2", 17002, 19100)):
             node_env = env.copy()
             node_env.update(NDT_ACQ_NODE_ID=node, NDT_ACQ_PORT=str(port), NDT_DEVICE_BASE_PORT=str(base))
@@ -148,6 +205,9 @@ def main():
         assert status == 401 and not wrong["ok"], wrong
         status, routed = login(test_password)
         assert status == 200 and routed["ok"] and routed["port"] in (17001, 17002), routed
+        verify_jwt(routed["token"], env["NDT_JWT_SECRET"], routed["node_id"], routed["user_id"])
+        tampered = routed["token"][:-2] + ("A" if routed["token"][-2] != "A" else "B") + routed["token"][-1]
+        expect_hello_rejected(routed["host"], routed["port"], tampered)
         print("HTTP login and AcqServer route passed")
         with socket.create_connection((routed["host"], routed["port"]), timeout=10) as sock:
             sock.settimeout(25)
@@ -157,6 +217,8 @@ def main():
             time.sleep(2.5)  # Let the first node report its new connection count.
             status, second_route = login(test_password)
             assert status == 200 and second_route["port"] != routed["port"], second_route
+            verify_jwt(second_route["token"], env["NDT_JWT_SECRET"], second_route["node_id"], second_route["user_id"])
+            expect_hello_rejected(second_route["host"], second_route["port"], routed["token"])
             with socket.create_connection((second_route["host"], second_route["port"]), timeout=10) as second:
                 second.settimeout(10)
                 send_frame(second, 1, {"token": second_route["token"]})
@@ -191,6 +253,24 @@ def main():
             assert archive.exists() and spool.exists()
             assert hashlib.sha256(archive.read_bytes()).digest() == hashlib.sha256(spool.read_bytes()).digest()
             print("TCP scan, device sockets, gRPC FFT, Redis upload and SHA-256 archive passed")
+        qt_bin = ROOT / "build-client-integration" / "bin"
+        (qt_bin / "config.ini").write_text("[gate]\nlogin_url=http://127.0.0.1:18080/login\n", encoding="utf-8")
+        qt_env = env.copy()
+        qt_root = Path(os.environ.get("NDT_QT_ROOT", r"D:\qt\5.9.9\msvc2015_64"))
+        qt_env["PATH"] = str(qt_root / "bin") + os.pathsep + qt_env.get("PATH", "")
+        qt_env["QT_QPA_PLATFORM"] = "offscreen"
+        qt_env["QT_QPA_PLATFORM_PLUGIN_PATH"] = str(qt_root / "plugins" / "platforms")
+        result = subprocess.run([str(qt_bin / "qt_integration.exe")], cwd=qt_bin,
+                                env=qt_env, text=True, capture_output=True, timeout=90)
+        if result.returncode:
+            raise RuntimeError(f"Qt integration failed: {result.stdout}\n{result.stderr}")
+        match = re.search(r"scan_id=([0-9a-f]+)", result.stdout)
+        assert match, result.stdout
+        qt_archive = ROOT / "data" / "archive" / f"{match.group(1)}.ndtbin"
+        qt_spool = ROOT / "spool" / f"{match.group(1)}.spool"
+        assert qt_archive.exists() and qt_spool.exists()
+        assert hashlib.sha256(qt_archive.read_bytes()).digest() == hashlib.sha256(qt_spool.read_bytes()).digest()
+        print(result.stdout.strip())
     finally:
         if admin_password:
             shutdown_env = os.environ.copy()

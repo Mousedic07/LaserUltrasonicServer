@@ -1,6 +1,7 @@
 #pragma once
 #include "server/network/GateServer/AuthGrpcClient.h"
 #include "server/network/GateServer/StatusGrpcClient.h"
+#include "Jwt.h"
 #include <boost/beast/http.hpp>
 #include <boost/json.hpp>
 #include <functional>
@@ -24,5 +25,6 @@ private:
     std::map<std::string, Callback> callbacks_;
     AuthGrpcClient auth_;
     StatusGrpcClient status_;
+    Jwt jwt_;
 };
 }

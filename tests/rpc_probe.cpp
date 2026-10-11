@@ -37,9 +37,6 @@ void statusTest() {
     const auto first = route();
     const auto second = route();
     require(first.node_id() != second.node_id(), "tie rotation failed");
-    ndt::SessionRequest validate; validate.set_token(second.token());
-    ndt::SessionReply validated; grpc::ClientContext context; deadline(context);
-    require(stub->Validate(&context, validate, &validated).ok() && validated.ok(), "token validation failed");
     std::this_thread::sleep_for(std::chrono::milliseconds(1800));
     beat("test-a", 7991, 0, 0, true);
     require(route().node_id() == "test-a", "stale node was routed");
@@ -47,7 +44,7 @@ void statusTest() {
     ndt::RouteRequest request; request.set_user_id(1);
     ndt::RouteReply reply; grpc::ClientContext failContext; deadline(failContext);
     require(stub->Route(&failContext, request, &reply).ok() && !reply.ok(), "unavailable device routed");
-    std::cout << "status route/load/timeout/token passed\n";
+    std::cout << "status route/load/timeout passed\n";
 }
 void procTest() {
     auto stub = ndt::ProcessService::NewStub(grpc::CreateChannel(

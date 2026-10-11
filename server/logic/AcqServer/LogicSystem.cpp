@@ -11,7 +11,8 @@
 namespace ndtapp::acq {
 LogicSystem::LogicSystem()
     : capacity_(std::size_t(ConfigMgr::Instance().GetInt("Queue", "LogicCapacity", 128))),
-      scanPool_(ConfigMgr::Instance().GetInt("ThreadPool", "LogicThreads", 4), capacity_) {
+      scanPool_(ConfigMgr::Instance().GetInt("ThreadPool", "LogicThreads", 4), capacity_),
+      nodeId_(ConfigMgr::Instance().Get("Server", "NodeId", "acq1", "NDT_ACQ_NODE_ID")) {
     if (!capacity_ || capacity_ > 65536) throw std::runtime_error("invalid Acq logic capacity");
     RegisterCallBacks();
 }
@@ -41,10 +42,10 @@ bool LogicSystem::PostMsgToQue(MsgNode node) {
 void LogicSystem::RegisterCallBacks() {
     callbacks_[1] = [this](const MsgNode &node) {
         const auto token = std::string(node.body.as_object().at("token").as_string());
-        ndt::SessionReply reply;
-        const auto result = status_.Validate(token, reply);
-        if (!result.ok() || !reply.ok()) {
-            node.session->Send(8, {{"error","invalid session token"}});
+        JwtClaims claims; std::string error;
+        if (!jwt_.Verify(token, nodeId_, claims, error)) {
+            std::cerr << "Acq JWT: " << error << '\n';
+            node.session->Send(8, {{"error","invalid session JWT"}});
             node.session->Close(); return;
         }
         node.session->SetAuthenticated();

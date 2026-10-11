@@ -16,11 +16,4 @@ grpc::Status StatusGrpcClient::Heartbeat(const ndt::NodeHeartbeat &heartbeat, nd
     if (!status.ok()) std::cerr << "StatusServer heartbeat: " << status.error_message() << '\n';
     return status;
 }
-grpc::Status StatusGrpcClient::Validate(const std::string &token, ndt::SessionReply &reply) const {
-    ndt::SessionRequest request; request.set_token(token);
-    grpc::ClientContext context; deadline(context, timeoutMs_);
-    const auto status = stub_->Validate(&context, request, &reply);
-    if (!status.ok()) std::cerr << "StatusServer validate: " << status.error_message() << '\n';
-    return status;
-}
 }

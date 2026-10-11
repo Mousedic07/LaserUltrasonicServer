@@ -37,7 +37,9 @@ target_include_directories(ndt_proto PUBLIC ${GEN} ${NDT_GRPC_SOURCE}/include
 add_library(ndt_common STATIC server/pool/common/NdtCommon.cpp
     server/pool/common/AsioIOServicePool.cpp server/pool/common/ConfigMgr.cpp
     server/pool/common/GrpcChannelManager.cpp server/pool/common/LogicThreadPool.cpp
-    server/network/common/NdtFrameCodec.cpp)
+    server/pool/common/Jwt.cpp
+    server/network/common/NdtFrameCodec.cpp
+    server/network/common/GrpcServerRunner.cpp)
 target_include_directories(ndt_common PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} server/pool/common ${GEN} ${NDT_BOOST_ROOT}
     ${NDT_GRPC_SOURCE}/include ${NDT_GRPC_SOURCE}/third_party/protobuf/src
     ${NDT_GRPC_SOURCE}/third_party/abseil-cpp ${NDT_GRPC_SOURCE}/third_party/re2
@@ -57,8 +59,7 @@ ndt_server(GateServer
   server/network/GateServer/StatusGrpcClient.cpp server/logic/GateServer/LogicSystem.cpp)
 ndt_server(StatusServer server/network/StatusServer/main.cpp
   server/network/StatusServer/StatusGrpcServiceImpl.cpp
-  server/logic/StatusServer/LogicSystem.cpp server/logic/StatusServer/NodeManager.cpp
-  server/logic/StatusServer/SessionManager.cpp)
+  server/logic/StatusServer/LogicSystem.cpp server/logic/StatusServer/NodeManager.cpp)
 ndt_server(AuthServer server/network/AuthServer/main.cpp
   server/network/AuthServer/AuthGrpcServiceImpl.cpp
   server/logic/AuthServer/LogicSystem.cpp server/logic/AuthServer/MysqlDao.cpp
@@ -95,6 +96,9 @@ enable_testing()
 add_executable(config_test tests/config_test.cpp)
 target_link_libraries(config_test PRIVATE ndt_common)
 add_test(NAME config COMMAND config_test --config ${CMAKE_CURRENT_SOURCE_DIR}/config/GateServer/config.example.ini)
+add_executable(jwt_test tests/jwt_test.cpp)
+target_link_libraries(jwt_test PRIVATE ndt_common)
+add_test(NAME jwt COMMAND jwt_test --config ${CMAKE_CURRENT_SOURCE_DIR}/config/GateServer/config.example.ini)
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tests/fft_test.cpp)
   add_executable(fft_test tests/fft_test.cpp server/logic/ProcServer/Fft.cpp)
   add_test(NAME fft COMMAND fft_test)

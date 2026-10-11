@@ -4,6 +4,7 @@
 #include "server/network/AcqServer/ProcGrpcClient.h"
 #include "server/network/AcqServer/FileGrpcClient.h"
 #include "LogicThreadPool.h"
+#include "Jwt.h"
 #include <atomic>
 #include <condition_variable>
 #include <deque>
@@ -40,6 +41,8 @@ private:
     StatusGrpcClient status_;
     ProcGrpcClient proc_;
     FileGrpcClient file_;
+    Jwt jwt_;
+    std::string nodeId_;
     std::atomic<uint32_t> activeConnections_{0}, runningTasks_{0};
     std::atomic<bool> deviceConnected_{false};
 };

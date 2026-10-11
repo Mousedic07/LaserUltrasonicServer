@@ -25,7 +25,7 @@ env.update(NDT_FILE_PORT="15054", NDT_REDIS_PORT="16379",
            NDT_FILE_ROOT=str(archive_dir), NDT_SPOOL_ROOT=str(spool_dir),
            NDT_STATUS_PORT="19997", NDT_ACQ_PORT="17001",
            NDT_DEVICE_BASE_PORT="19990", NDT_RECOVERY_ID=id_,
-           NDT_RECOVERY_SPOOL=str(spool))
+           NDT_RECOVERY_SPOOL=str(spool), NDT_JWT_SECRET=secrets.token_hex(32))
 processes = []
 with (ROOT / "data" / "recovery.log").open("w") as log:
     try:
