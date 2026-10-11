@@ -1,21 +1,25 @@
 # One waveform's data flow
 
-1. Qt sends `POST /login` to GateServer. AuthServer checks the user in MySQL.
-   StatusServer selects a live, device-ready AcqServer and issues a token.
-2. Qt opens TCP to that node and sends an NDT1 `Hello` frame with the token.
-   AcqServer verifies it through StatusServer's `Validate` RPC.
+1. Qt sends `POST /login` to GateServer. `AuthGrpcClient` calls AuthServer,
+   whose `MysqlDao` leases a pooled MySQL connection and verifies PBKDF2.
+   `StatusGrpcClient` obtains a live, device-ready AcqServer route, then
+   GateServer signs a node-bound HS256 JWT.
+2. Qt opens TCP to that node and sends an NDT1 `Hello` frame with the JWT.
+   `CSession` posts the parsed `MsgNode` to AcqServer `LogicSystem`, which
+   verifies signature, issuer, audience, time and assigned node locally.
 3. Qt sends `Start` with sample rate, count, excitation, step, points and
    channels. AcqServer rejects a configuration violating Nyquist or file limits.
-4. AcqServer sends `set_frequency` and `configure` over real TCP sockets to
+4. A bounded logic worker starts `ScanTask`; `DeviceBridge` sends
+   `set_frequency` and `configure` over real TCP sockets to
    laser and DAQ. For each position it sends `move_to`, `trigger` and
    `read_waveform`. The seeded simulator returns channel-specific samples.
 5. For each channel, AcqServer writes a fixed-layout record to its spool and
    sends a `Wave` frame to Qt. It submits the samples to an eight-item FFT
    queue and fixed-size file chunks to an eight-item archive queue.
-6. The FFT worker calls ProcServer with one Protobuf `Waveform`. ProcServer
+6. `FftTask` calls `ProcGrpcClient` with one Protobuf `Waveform`. ProcServer
    returns frequency bins, one-sided normalized magnitudes and a measured
    dominant frequency. AcqServer forwards a `Spectrum` frame to Qt.
-7. The archive worker queries FileServer's persisted offset, uploads chunks
+7. `FileUploadTask` uses `FileGrpcClient` to query FileServer's persisted offset, uploads chunks
    by gRPC `Append` and forwards progress/speed to Qt. FileServer flushes the
    `.part` file before acknowledging each offset. Redis stores progress and
    speed in `ndt:upload:{upload_id}`. The disk `.meta` file and `.part` file

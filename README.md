@@ -8,26 +8,42 @@ the original chat UI and registration routes are excluded from that build.
 
 The demo controls TCP-connected Python laser, stage and DAQ simulators,
 streams multichannel waveforms, calculates FFT using gRPC, and archives raw
-data with Redis progress and resumable gRPC chunks.
+data with Redis progress and resumable gRPC chunks. The server source is
+split into `server/network`, `server/logic` and `server/pool`; each of the
+six processes has a `LogicSystem` entry. GateServer signs a node-bound HS256
+JWT after MySQL login and StatusServer routing. AcqServer validates it
+before accepting scan messages.
 
 ## NDT build and tests
 
 - Open `client/ndt_client/ndt_client.pro` in Qt Creator 4.11.0 after checking
   the selected Kit's compiler/debugger warnings.
 - `scripts/build_client_msvc64.bat` built the Qt 5.9.9 MSVC x64 client here.
-- `scripts/build_server_msvc64.bat` built all six VS2022 x64 C++ services here.
+- `scripts/build_server_msvc64.bat` builds all six VS2022 x64 C++ services.
+- CMake generates the shared Protobuf/gRPC files from `proto/ndt.proto` into
+  `build-server-v144/generated` (`ndt_proto` target). The local gRPC compiler,
+  plugin and libraries must match; see the build guide for paths and a clean
+  CMake build command.
+- Copy each service's `config/<Service>/config.example.ini` to an ignored
+  `config.ini` or select another file with `--config`. Set the same
+  `NDT_JWT_SECRET` (at least 32 characters) for GateServer and AcqServer;
+  provide `NDT_MYSQL_PASSWORD` separately for AuthServer.
 - `python -B tests/simulator_test.py` and `python -B tests/service_test.py`
   passed device, routing, FFT, upload and SHA-256 tests.
-- `python -B tests/full_chain_test.py` passed MySQL login, two live AcqServer
-  load routing, TCP waveform acquisition, gRPC FFT and SHA-256 archive checks.
+- `scripts/build_qt_integration_msvc64.bat` builds an offscreen Qt 5.9.9
+  harness from the real Widgets client sources. `python -B
+  tests/full_chain_test.py` runs real MySQL, Redis, two AcqServer instances,
+  login/JWT, Qt waveform and FFT charts, and SHA-256 archive checks.
 - `python -B tests/upload_recovery_test.py` passed AcqServer restart recovery
   from FileServer's persisted upload offset.
 - See [build and run](docs/BUILD_AND_RUN.md) for full-chain test results,
   dependencies, configuration and launch order.
 
 Documentation: [architecture](docs/ARCHITECTURE.md),
+[source walkthrough](docs/CODE_WALKTHROUGH.md),
 [data flow](docs/DATA_FLOW.md), [network protocol](docs/NETWORK_PROTOCOL.md),
-[source reuse](docs/LLFC_REUSE.md), [debug guide](docs/DEBUG_GUIDE.md), and
+[source audit and reuse](docs/REFACTOR_AUDIT.md),
+[debug guide](docs/DEBUG_GUIDE.md), and
 [local environment audit](docs/ENVIRONMENT.md).
 
 ## Original llfcchat README

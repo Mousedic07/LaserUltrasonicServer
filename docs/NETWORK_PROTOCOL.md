@@ -4,7 +4,7 @@
 
 `POST /login`, `Content-Type: application/json`, body
 `{"username":"...","password":"..."}`. Success returns `ok`, `user_id`,
-`role`, `host`, `port`, `node_id`, and five-minute `token`. Bad credentials
+`role`, `host`, `port`, `node_id`, and a five-minute HS256 JWT in `token`. Bad credentials
 return HTTP 401; unavailable Auth/Status RPC returns HTTP 503. The client uses
 an asynchronous five-second HTTP timeout.
 
@@ -22,8 +22,9 @@ Every TCP frame has a 12-byte header followed by UTF-8 JSON:
 Types: 1 Hello, 2 Start, 3 Stop, 4 Wave, 5 Spectrum, 6 Status, 7 File,
 8 Error. Unknown versions and oversized or invalid JSON frames close the
 connection. Both the Qt buffer parser and the server's exact-length reads
-support fragmented and coalesced TCP packets. A Hello with the route token
-must be the first frame. JSON `Wave` includes scan/frame/channel IDs,
+support fragmented and coalesced TCP packets. A Hello with the route JWT
+must be the first frame. AcqServer checks the JWT's HS256 signature, `iss`,
+`aud`, `iat`, `exp`, user ID and assigned `node_id`. JSON `Wave` includes scan/frame/channel IDs,
 timestamp, position in mm, sample rate in Hz and float samples. `Spectrum`
 includes frequency bins in Hz, magnitudes and dominant frequency in Hz.
 
@@ -39,7 +40,7 @@ Stage commands: `move_to`, `set_step`, `get_position`, `stop`. DAQ commands:
 ## C++ service RPCs
 
 All services use the single [Protobuf schema](../proto/ndt.proto):
-`AuthService.Verify`, `StatusService.Heartbeat/Route/Validate`,
+`AuthService.Verify`, `StatusService.Heartbeat/Route`,
 `ProcessService.Fft`, `ArchiveService.Query/Append/Complete`. Calls use
 deadlines, typically three seconds, five seconds for FFT/chunk append and
 30 seconds for final SHA-256 verification. Archive chunks are at most

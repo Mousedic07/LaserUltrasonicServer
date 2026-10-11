@@ -1,43 +1,59 @@
-# Architecture
+# Server architecture
+
+Six separate VS2022 x64 processes implement the NDT system. The Qt 5.9.9
+Widgets client communicates only through HTTP and framed TCP, so its MSVC
+toolset can differ from the servers'. The simulator exposes three TCP device
+endpoints. MySQL stores users; Redis stores upload progress.
 
 ```text
-Qt Widgets --HTTP/JSON--> GateServer --gRPC--> AuthServer --MySQL--> users
-                              |
-                              +--gRPC--> StatusServer <--heartbeat-- AcqServer 1/2
-Qt Widgets <--NDT1 TCP frames------------------------> AcqServer
-                                                        |--TCP--> laser/stage/DAQ simulators
-                                                        |--gRPC--> ProcServer (FFT)
-                                                        +--gRPC--> FileServer --disk + Redis
+Qt HttpMgr → GateServer → AuthServer → MySqlPool → MySQL
+                       ↘ StatusServer ← AcqServer heartbeats
+Qt TcpMgr  → AcqServer → simulator laser/stage/DAQ
+                       → ProcServer (FFT)
+                       → FileServer → disk + RedisConPool → Redis
 ```
 
-Each named server is a separate executable and process. The default local
-ports are Gate 8080, Auth 50051, Status 50052, Proc 50053, File 50054 and
-Acq 7001. A second AcqServer uses another port, node ID and device base port.
-The HTTP and TCP links permit the Qt 5.9.9 client and VS2022 services to use
-different MSVC toolsets.
+Every service follows the same source boundary:
 
-GateServer accepts bounded HTTP requests through Boost.Beast. It calls
-AuthServer for MySQL verification and StatusServer for a healthy node and
-short-lived opaque token. AuthServer stores PBKDF2-HMAC-SHA256 password hashes
-in MySQL and makes a new DB connection per request so DB errors surface.
+| Directory | Responsibility |
+| --- | --- |
+| `server/network/<service>` | HTTP/TCP accept, asynchronous session IO, gRPC clients and thin service adapters |
+| `server/logic/<service>` | `LogicSystem` entry, routing, authentication, acquisition, FFT and archive rules |
+| `server/pool/common` | `ConfigMgr`, IO and logic executors, MySQL and Redis pools, reusable gRPC channels, JWT |
 
-StatusServer stores latest Acq heartbeat, live connection/task counts and
-device readiness. Nodes older than `NDT_HEARTBEAT_TIMEOUT_MS` are excluded.
-The score is connections + 2 × running tasks; equal scores rotate. Tokens
-expire after five minutes. The demo runs one StatusServer process, so this
-token store is in memory and sessions are lost if it restarts.
+`server/network/common/NdtFrameCodec` validates and writes NDT1 frames.
+`proto/ndt.proto` is the only RPC schema; CMake generates a shared
+`ndt_proto` library in `<build-directory>/generated`. Each service's `main`
+loads its INI and starts its transport and logic objects.
 
-AcqServer uses an adapted llfcchat Asio IO service pool with a 16-session
-admission limit. One scan task controls three real TCP device sockets.
-Bounded eight-item queues separate acquisition from FFT RPC and archive RPC;
-full queues pause acquisition. The raw binary spool remains on AcqServer disk
-until the upload is verified. ProcServer performs an iterative radix-2 FFT;
-FileServer writes 64 KiB or smaller chunks, acknowledges durable offsets,
-stores progress in Redis and verifies SHA-256 before atomic rename.
-The spool has a ready marker after successful acquisition; AcqServer uses it
-on startup to resume a previously interrupted upload from FileServer's
-persisted offset. Incomplete scans have no ready marker.
+GateServer uses Boost.Beast asynchronous HTTP and calls AuthServer and
+StatusServer through dedicated clients with RPC deadlines. AuthServer's
+`MysqlDao` obtains a RAII connection from `MySqlPool`, verifies the stored
+PBKDF2 hash, and returns the role. StatusServer's `NodeManager` records
+heartbeats and selects device-ready nodes whose heartbeat is fresh. It
+minimizes `connections + 2 × running_tasks` and rotates equal scores.
+GateServer signs a five-minute HS256 JWT containing the assigned node ID.
 
-The network trust boundary is intentionally local for this demo. HTTP, TCP,
-gRPC, MySQL and Redis bind to loopback by default. Deploying across machines
-requires transport encryption, firewall rules and a shared session store.
+AcqServer uses `AsioIOServicePool` for TCP sessions. `CSession` performs
+asynchronous exact-length reads/writes; the bounded `LogicSystem` queue
+parses and dispatches Hello, Start, Stop and Status outside IO callbacks.
+JWT validation occurs in its Hello callback. Scan work runs on
+`LogicThreadPool`; separate bounded FFT and upload queues keep RPC calls
+away from IO workers. A full business queue rejects the request, and a full
+FFT/upload queue applies backpressure to acquisition.
+
+ProcServer's service adapter calls `FftLogic`; FileServer's adapter calls
+`ArchiveLogic`, which uses `FileManager` for disk state and `RedisMgr` for
+progress. `MySqlPool` and `RedisConPool` reuse checked connections, limit
+their counts, and return leases through RAII. Upload ACKs follow a disk
+flush. A `.ready` marker allows AcqServer to resume completed local scans
+after restart; FileServer's `.part` and `.meta` files determine the confirmed
+offset. `Complete` verifies SHA-256 before renaming to `.ndtbin`.
+
+The default example INIs bind to loopback. GateServer and AcqServer share a
+JWT secret through `NDT_JWT_SECRET` or their untracked `config.ini` files;
+the example files contain no secret. HS256 means both processes can sign
+tokens and therefore belong to one trust boundary. For deployment across
+machines, protect HTTP, TCP, gRPC, MySQL and Redis connections with TLS and
+restrict access to the signing key. StatusServer is a single in-memory
+router; multi-instance routing would need a shared heartbeat store.

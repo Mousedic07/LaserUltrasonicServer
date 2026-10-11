@@ -1,7 +1,8 @@
 # Build environment audit (2026-10-10)
 
-The source checkout is `D:\llfcproj\mychat`, based on `origin/master` on branch
-`codex/ndt-distributed-system`. It was clean before modifications.
+The source checkout is `D:\llfcproj\mychat`. The initial NDT implementation
+was developed from `origin/master` on `codex/ndt-distributed-system`; this
+architecture refactor is on `codex/architecture-refactor` from `laser/main`.
 
 ## Qt Creator and Kits
 
@@ -19,8 +20,13 @@ the original 2015/2017 Visual Studio installations were not found. The saved
 debugger list contains only MinGW GDB entries. The expected Windows SDK
 `cdb.exe` was not found. Consequently a yellow Kit warning may reflect
 compiler or debugger mismatch; the saved XML alone cannot prove the exact
-live warning text or Kit readiness. Qt Creator UI inspection was interrupted
-by the user's Escape key, so no visual warning state was confirmed.
+live warning text or Kit readiness. Qt Creator's live Options > Kits page
+was reopened during the refactor. It listed the default Desktop Qt 5.9.9
+MSVC2015 32bit Kit and separate MSVC2015/2017 64bit Kits. The automation
+could read the list but could not select an individual Kit or capture its
+detail pane, so the exact yellow warning text remains unconfirmed. The
+compiler/debugger findings above are independent toolchain checks, not an
+assertion that an IDE Kit is valid.
 
 Use the MSVC2015 64-bit Qt binaries with the installed VS2022 x64 toolchain
 for command-line build verification. In Qt Creator, point the Kit's C and C++
