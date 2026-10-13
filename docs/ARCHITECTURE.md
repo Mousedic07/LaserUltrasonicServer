@@ -19,15 +19,18 @@ Every service follows the same source boundary:
 | --- | --- |
 | `server/network/<service>` | HTTP/TCP accept, asynchronous session IO, gRPC clients and thin service adapters |
 | `server/logic/<service>` | `LogicSystem` entry, routing, authentication, acquisition, FFT and archive rules |
-| `server/pool/common` | `ConfigMgr`, IO and logic executors, MySQL and Redis pools, reusable gRPC channels, JWT |
+| `server/pool/common` | `ConfigMgr`, `AsioIOServicePool`, MySQL and Redis pools, reusable gRPC channels, JWT |
 
 `server/network/common/NdtFrameCodec` validates and writes NDT1 frames.
 `proto/ndt.proto` is the only RPC schema; CMake generates a shared
 `ndt_proto` library in `<build-directory>/generated`. Each service's `main`
 loads its INI and starts its transport and logic objects.
 
-GateServer uses Boost.Beast asynchronous HTTP and calls AuthServer and
-StatusServer through dedicated clients with RPC deadlines. AuthServer's
+GateServer uses Boost.Beast asynchronous HTTP. After reading a complete
+request, `HttpConnection` posts it to Gate `LogicSystem`'s bounded message
+queue. One independent worker thread performs login, AuthServer verification
+and StatusServer routing, then posts the result back to the Asio executor for
+an asynchronous HTTP response. A full queue returns HTTP 503. AuthServer's
 `MysqlDao` obtains a RAII connection from `MySqlPool`, verifies the stored
 PBKDF2 hash, and returns the role. StatusServer's `NodeManager` records
 heartbeats and selects device-ready nodes whose heartbeat is fresh. It
@@ -35,12 +38,15 @@ minimizes `connections + 2 × running_tasks` and rotates equal scores.
 GateServer signs a five-minute HS256 JWT containing the assigned node ID.
 
 AcqServer uses `AsioIOServicePool` for TCP sessions. `CSession` performs
-asynchronous exact-length reads/writes; the bounded `LogicSystem` queue
-parses and dispatches Hello, Start, Stop and Status outside IO callbacks.
-JWT validation occurs in its Hello callback. Scan work runs on
-`LogicThreadPool`; separate bounded FFT and upload queues keep RPC calls
-away from IO workers. A full business queue rejects the request, and a full
-FFT/upload queue applies backpressure to acquisition.
+asynchronous exact-length reads/writes; one independent `LogicSystem`
+thread consumes the bounded message queue and dispatches Hello, Start, Stop
+and Status by message ID. JWT validation occurs in its Hello callback.
+Each admitted scan runs on its own joinable thread, with `Scan.MaxConcurrent`
+limiting active scans. Completed threads are reaped by the logic thread;
+shutdown requests stop and joins every scan before its clients are destroyed.
+Each scan retains a dedicated FFT worker and upload worker with bounded
+queues. A full logic queue rejects a request, while full FFT/upload queues
+apply backpressure to acquisition.
 
 ProcServer's service adapter calls `FftLogic`; FileServer's adapter calls
 `ArchiveLogic`, which uses `FileManager` for disk state and `RedisMgr` for

@@ -35,9 +35,21 @@ void ScanTask::Run(std::shared_ptr<CSession> session, ScanConfig config,
     std::atomic<bool> complete{false};
     std::thread fftWorker, fileWorker;
     try {
-        fftWorker = std::thread(FftTask::Run, session, std::ref(fftQueue), std::ref(proc));
-        fileWorker = std::thread(FileUploadTask::Run, session, std::ref(fileQueue), std::ref(file),
-                                 scanId, config.totalBytes, spool, std::cref(complete));
+        fftWorker = std::thread([&] {
+            try { FftTask::Run(session, fftQueue, proc); }
+            catch (const std::exception &error) {
+                session->Send(8, {{"error",std::string("FFT worker: ") + error.what()}});
+            }
+            fftQueue.close();
+        });
+        fileWorker = std::thread([&] {
+            try { FileUploadTask::Run(session, fileQueue, file, scanId,
+                                      config.totalBytes, spool, complete); }
+            catch (const std::exception &error) {
+                session->Send(8, {{"error",std::string("upload worker: ") + error.what()}});
+            }
+            fileQueue.close();
+        });
     } catch (...) {
         fftQueue.close(); fileQueue.close();
         if (fftWorker.joinable()) fftWorker.join();

@@ -67,8 +67,13 @@ Sensitive values can be overridden by environment variables:
 | `NDT_MYSQL_PASSWORD` | AuthServer |
 | `NDT_REDIS_PASSWORD` | FileServer, when Redis authentication is enabled |
 
-The test runners also override ports, device bases and storage roots through
-the `NDT_*` variables in `ConfigMgr`. Do not commit local `config.ini` files
+The Gate and Acq example INIs configure one logic queue worker per service.
+Gate uses `Queue.LogicCapacity`; Acq also uses `Scan.MaxConcurrent`
+(default 4, override `NDT_MAX_CONCURRENT_SCANS`) to cap dedicated scan
+threads. FFT and file queues use `Queue.FftCapacity` and
+`Queue.FileCapacity`. The test runners also override ports, device
+bases and storage roots through the `NDT_*` variables in `ConfigMgr`.
+Do not commit local `config.ini` files
 or a signing key. Gate and Acq must agree on issuer and audience; the
 examples use `LaserUltrasonicServer` and `ndt-acq`.
 
@@ -113,7 +118,8 @@ python -B tests\full_chain_test.py
 `full_chain_test.py` starts isolated MySQL and Redis, both simulated device
 sets, all six server processes and the Qt offscreen harness. It checks
 MySQL pool reconnection after database restart, real login/route/JWT,
-node-specific JWT rejection, TCP acquisition, FFT charts and archive hash.
+node-specific JWT rejection, scan stop and concurrent-scan limit, TCP
+acquisition, FFT charts and archive hash.
 It writes `data/full-chain.log` and does not log generated passwords.
 `service_test.py` checks route scoring, tie rotation and stale heartbeats,
 FFT RPC, binary upload offsets and SHA-256. `upload_recovery_test.py`

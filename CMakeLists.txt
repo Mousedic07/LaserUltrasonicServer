@@ -36,7 +36,7 @@ target_include_directories(ndt_proto PUBLIC ${GEN} ${NDT_GRPC_SOURCE}/include
     ${NDT_GRPC_SOURCE}/third_party/re2 ${NDT_GRPC_SOURCE}/third_party/address_sorting/include)
 add_library(ndt_common STATIC server/pool/common/NdtCommon.cpp
     server/pool/common/AsioIOServicePool.cpp server/pool/common/ConfigMgr.cpp
-    server/pool/common/GrpcChannelManager.cpp server/pool/common/LogicThreadPool.cpp
+    server/pool/common/GrpcChannelManager.cpp
     server/pool/common/Jwt.cpp
     server/network/common/NdtFrameCodec.cpp
     server/network/common/GrpcServerRunner.cpp)

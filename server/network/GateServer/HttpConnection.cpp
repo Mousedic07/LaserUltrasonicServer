@@ -4,8 +4,8 @@
 namespace ndtapp::gate {
 namespace http = boost::beast::http;
 HttpConnection::HttpConnection(boost::asio::ip::tcp::socket socket, LogicSystem &logic,
-                               LogicThreadPool &business, std::function<void()> onDone)
-    : stream_(std::move(socket)), logic_(logic), business_(business), onDone_(std::move(onDone)) {
+                               std::function<void()> onDone)
+    : stream_(std::move(socket)), logic_(logic), onDone_(std::move(onDone)) {
     parser_.body_limit(4096);
 }
 HttpConnection::~HttpConnection() { onDone_(); }
@@ -18,12 +18,12 @@ void HttpConnection::Start() {
         const unsigned version = request.version();
         const auto method = request.method();
         const std::string target(request.target());
-        const std::string body = std::move(request.body());
-        if (!self->business_.TryPost([self, version, method, target, body] {
-            const auto result = self->logic_.Handle(method, target, body);
-            boost::asio::post(self->stream_.get_executor(), [self, result, version] {
-                self->Respond(result, version);
-            });
+        std::string body = std::move(request.body());
+        if (!self->logic_.PostMsgToQue(method, target, std::move(body), [self, version](HttpResult result) {
+            boost::asio::post(self->stream_.get_executor(),
+                [self, result=std::move(result), version]() mutable {
+                    self->Respond(std::move(result), version);
+                });
         })) {
             self->Respond({http::status::service_unavailable,
                           {{"ok",false},{"error","server busy"}}}, version);

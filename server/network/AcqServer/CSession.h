@@ -19,6 +19,7 @@ public:
     void ResumeRead();
     bool Send(uint16_t type, const boost::json::value &body);
     void Close();
+    bool IsClosed() const { return closed_.load(); }
     bool Authenticated() const { return authenticated_.load(); }
     void SetAuthenticated() { authenticated_ = true; }
     bool StopRequested() const { return stop_.load(); }

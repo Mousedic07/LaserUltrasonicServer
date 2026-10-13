@@ -9,9 +9,11 @@ service namespaces such as `ndtapp::gate` and `ndtapp::acq`, so the six
 1. `client/ndt_client/NdtWindow::buildLogin` connects the Login button to
    `HttpMgr::login`, which uses Qt's asynchronous `QNetworkAccessManager`.
 2. Gate `CServer::Start` accepts HTTP sockets. `HttpConnection::Start` uses
-   Beast `async_read`, posts the request to a bounded `LogicThreadPool`,
-   calls Gate `LogicSystem::Handle` and `LogicSystem::Login`, then posts the
-   response back to the IO executor for `HttpConnection::Respond`.
+   Beast `async_read` for the complete request, then
+   `LogicSystem::PostMsgToQue` enqueues it in a bounded queue. Gate
+   `LogicSystem::DealMsg` runs on one independent worker thread, calls
+   `Handle` and `Login`, and posts the result back to the IO executor.
+   `HttpConnection::Respond` performs an asynchronous HTTP write.
 3. `AuthGrpcClient::Verify` sends `ndt::LoginRequest` to
    `AuthGrpcServiceImpl::Verify`. Auth `LogicSystem::Verify` calls
    `MysqlDao::Verify`, which obtains `MySqlPool::Handle`. The prepared
@@ -42,10 +44,12 @@ service namespaces such as `ndtapp::gate` and `ndtapp::acq`, so the six
    HS256 signature, issuer, audience, valid time and this Acq node ID.
    A valid Hello authenticates the `CSession`.
 4. A Start frame goes through the same queue. `ScanLogic::Parse` checks
-   sample rate, Nyquist condition, size and scan parameters. The callback
-   posts `ScanTask::Run` to `LogicThreadPool`; device and RPC work never run
-   on the Asio read callback. Stop sets the session stop flag; Status probes
-   the devices and sends a status frame.
+   sample rate, Nyquist condition, size and scan parameters. The logic
+   thread admits at most `Scan.MaxConcurrent` scans, then creates a joinable
+   thread for each `ScanTask::Run`. It reaps finished scan threads and
+   requests stop and joins the rest during shutdown. Device and RPC work stay
+   off the Asio read callback and logic queue worker. Stop sets the session
+   stop flag; Status probes the devices and sends a status frame.
 5. `ScanTask::Run` configures `DeviceBridge`, which sends line-delimited
    JSON commands to the Python laser, stage and DAQ simulators. For each
    point and channel it writes a `WAV1` record to the local spool and calls
@@ -56,7 +60,10 @@ service namespaces such as `ndtapp::gate` and `ndtapp::acq`, so the six
 
 ## FFT and archive
 
-1. `ScanTask` pushes each Protobuf `Waveform` into the bounded FFT queue.
+1. `ScanTask` starts one FFT thread and one file upload thread for its
+   scan. Both consume bounded queues and close their queue on exit so a
+   failed worker cannot leave acquisition blocked. `ScanTask` pushes
+   each Protobuf `Waveform` into the bounded FFT queue.
    `FftTask::Run` calls `ProcGrpcClient::Fft` using a reused gRPC channel and
    deadline. `ProcGrpcServiceImpl::Fft` delegates to Proc
    `LogicSystem::Process`, then `FftLogic::Calculate`. The Spectrum returns

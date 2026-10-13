@@ -150,7 +150,7 @@ def main():
                    NDT_AUTH_PORT="15051", NDT_STATUS_PORT="15052", NDT_PROC_PORT="15053", NDT_FILE_PORT="15054",
                    NDT_GATE_PORT="18080", NDT_FILE_ROOT=str(ROOT / "data" / "archive"),
                    NDT_SPOOL_ROOT=str(ROOT / "spool"),
-                   NDT_JWT_SECRET=secrets.token_hex(32))
+                   NDT_JWT_SECRET=secrets.token_hex(32), NDT_MAX_CONCURRENT_SCANS="1")
         def launch(command, port, custom=None):
             proc = subprocess.Popen(command, cwd=ROOT, env=custom or env, stdout=log,
                                     stderr=subprocess.STDOUT, creationflags=subprocess.CREATE_NO_WINDOW)
@@ -225,6 +225,36 @@ def main():
                 second_kind, second_hello = recv_frame(second)
                 assert second_kind == 1 and second_hello["state"] == "authenticated"
             print("Two live AcqServer instances routed according to connection load")
+            send_frame(sock, 2, {"sample_rate_hz": 20e6, "sample_count": 64,
+                                 "excitation_frequency_hz": 2.75e6, "scan_step_mm": 0.5,
+                                 "scan_points": 10000, "channel_count": 1})
+            while True:
+                kind, message = recv_frame(sock)
+                if kind == 8:
+                    raise RuntimeError(f"AcqServer long scan error: {message}")
+                if kind == 6 and message.get("state") == "running":
+                    break
+            with socket.create_connection((routed["host"], routed["port"]), timeout=10) as competing:
+                competing.settimeout(10)
+                send_frame(competing, 1, {"token": routed["token"]})
+                assert recv_frame(competing)[0] == 1
+                send_frame(competing, 2, {"sample_rate_hz": 20e6, "sample_count": 64,
+                                          "excitation_frequency_hz": 2.75e6, "scan_step_mm": 0.5,
+                                          "scan_points": 2, "channel_count": 1})
+                reject_kind, rejected = recv_frame(competing)
+                assert reject_kind == 8 and rejected.get("error") == "concurrent scan limit reached", rejected
+            send_frame(sock, 3, {})
+            stopped = None
+            for _ in range(300):
+                kind, message = recv_frame(sock)
+                if kind == 8:
+                    raise RuntimeError(f"AcqServer stop error: {message}")
+                if kind == 6 and message.get("state") == "stopped":
+                    stopped = message
+                    break
+            assert stopped and stopped["completed_points"] < 10000, stopped
+            print("Stop scan and concurrent scan limit passed")
+            time.sleep(0.2)
             send_frame(sock, 2, {"sample_rate_hz": 20e6, "sample_count": 1024,
                                  "excitation_frequency_hz": 2.75e6, "scan_step_mm": 0.5,
                                  "scan_points": 2, "channel_count": 4}, split=True)

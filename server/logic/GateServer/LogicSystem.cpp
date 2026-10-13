@@ -1,9 +1,53 @@
 #include "LogicSystem.h"
+#include "ConfigMgr.h"
 #include "NdtCommon.h"
+#include <iostream>
+#include <stdexcept>
 
 namespace ndtapp::gate {
 namespace http = boost::beast::http;
-LogicSystem::LogicSystem() { RegisterCallBacks(); }
+LogicSystem::LogicSystem()
+    : capacity_(std::size_t(ConfigMgr::Instance().GetInt("Queue", "LogicCapacity", 128))) {
+    if (!capacity_ || capacity_ > 65536) throw std::runtime_error("invalid Gate logic capacity");
+    RegisterCallBacks();
+    worker_ = std::thread([this] { DealMsg(); });
+}
+LogicSystem::~LogicSystem() { Stop(); }
+bool LogicSystem::PostMsgToQue(http::verb method, std::string target,
+                                std::string body, std::function<void(HttpResult)> complete) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (stopping_ || messages_.size() >= capacity_) return false;
+    messages_.push_back({method, std::move(target), std::move(body), std::move(complete)});
+    queued_.notify_one();
+    return true;
+}
+void LogicSystem::Stop() {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (stopping_) return;
+        stopping_ = true;
+        messages_.clear();
+    }
+    queued_.notify_all();
+    if (worker_.joinable()) worker_.join();
+}
+void LogicSystem::DealMsg() {
+    for (;;) {
+        Request request;
+        {
+            std::unique_lock<std::mutex> lock(mutex_);
+            queued_.wait(lock, [this] { return stopping_ || !messages_.empty(); });
+            if (stopping_) return;
+            request = std::move(messages_.front());
+            messages_.pop_front();
+        }
+        try {
+            request.complete(Handle(request.method, request.target, request.body));
+        } catch (const std::exception &error) {
+            std::cerr << "Gate logic completion: " << error.what() << '\n';
+        }
+    }
+}
 void LogicSystem::RegisterCallBacks() {
     callbacks_["/login"] = [this](const std::string &body) { return Login(body); };
 }

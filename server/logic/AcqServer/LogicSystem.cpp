@@ -7,13 +7,17 @@
 #include "NdtCommon.h"
 #include "server/network/AcqServer/CSession.h"
 #include <iostream>
+#include <stdexcept>
 
 namespace ndtapp::acq {
 LogicSystem::LogicSystem()
     : capacity_(std::size_t(ConfigMgr::Instance().GetInt("Queue", "LogicCapacity", 128))),
-      scanPool_(ConfigMgr::Instance().GetInt("ThreadPool", "LogicThreads", 4), capacity_),
+      maxConcurrentScans_(std::size_t(ConfigMgr::Instance().GetInt(
+          "Scan", "MaxConcurrent", 4, "NDT_MAX_CONCURRENT_SCANS"))),
       nodeId_(ConfigMgr::Instance().Get("Server", "NodeId", "acq1", "NDT_ACQ_NODE_ID")) {
     if (!capacity_ || capacity_ > 65536) throw std::runtime_error("invalid Acq logic capacity");
+    if (!maxConcurrentScans_ || maxConcurrentScans_ > 64)
+        throw std::runtime_error("invalid concurrent scan limit");
     RegisterCallBacks();
 }
 LogicSystem::~LogicSystem() { Stop(); }
@@ -27,17 +31,35 @@ void LogicSystem::Stop() {
         std::lock_guard<std::mutex> lock(mutex_);
         if (stopping_) return;
         stopping_ = true;
+        messages_.clear();
     }
-    queued_.notify_all(); heartbeatWake_.notify_all();
+    queued_.notify_all();
+    heartbeatWake_.notify_all();
     if (dispatchThread_.joinable()) dispatchThread_.join();
+    for (auto &scan : scanWorkers_) scan.session->RequestStop();
+    for (auto &scan : scanWorkers_) if (scan.thread.joinable()) scan.thread.join();
+    scanWorkers_.clear();
     if (heartbeatThread_.joinable()) heartbeatThread_.join();
     if (recoveryThread_.joinable()) recoveryThread_.join();
-    scanPool_.Stop();
 }
 bool LogicSystem::PostMsgToQue(MsgNode node) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (stopping_ || messages_.size() >= capacity_) return false;
-    messages_.push_back(std::move(node)); queued_.notify_one(); return true;
+    messages_.push_back(std::move(node));
+    queued_.notify_one();
+    return true;
+}
+bool LogicSystem::HasCompletedScan() const {
+    for (const auto &scan : scanWorkers_)
+        if (scan.finished->load()) return true;
+    return false;
+}
+void LogicSystem::ReapFinishedScans() {
+    for (auto current = scanWorkers_.begin(); current != scanWorkers_.end();) {
+        if (!current->finished->load()) { ++current; continue; }
+        if (current->thread.joinable()) current->thread.join();
+        current = scanWorkers_.erase(current);
+    }
 }
 void LogicSystem::RegisterCallBacks() {
     callbacks_[1] = [this](const MsgNode &node) {
@@ -53,20 +75,41 @@ void LogicSystem::RegisterCallBacks() {
                                {"device_connected",deviceConnected_.load()}});
     };
     callbacks_[2] = [this](const MsgNode &node) {
+        if (node.session->IsClosed()) return;
         const ScanConfig config = ScanLogic::Parse(node.body.as_object());
+        ReapFinishedScans();
+        if (scanWorkers_.size() >= maxConcurrentScans_) {
+            node.session->Send(8, {{"error","concurrent scan limit reached"}});
+            return;
+        }
+        auto finished = std::make_shared<std::atomic<bool>>(false);
         if (!node.session->BeginScan()) {
-            node.session->Send(8, {{"error","scan already running"}}); return;
+            node.session->Send(8, {{"error","scan already running"}});
+            return;
         }
         node.session->ResetStop();
-        const bool accepted = scanPool_.TryPost([this, session=node.session, config] {
-            try { ScanTask::Run(session, config, proc_, file_, deviceConnected_, runningTasks_); }
-            catch (const std::exception &e) {
-                session->Send(8, {{"error",e.what()}}); session->EndScan();
-            }
-        });
-        if (!accepted) {
+        try { scanWorkers_.push_back({node.session, finished, {}}); }
+        catch (...) { node.session->EndScan(); throw; }
+        try {
+            scanWorkers_.back().thread = std::thread([this, session=node.session, config, finished] {
+                try { ScanTask::Run(session, config, proc_, file_, deviceConnected_, runningTasks_); }
+                catch (const std::exception &error) {
+                    session->Send(8, {{"error",error.what()}});
+                    session->EndScan();
+                } catch (...) {
+                    session->Send(8, {{"error","scan worker failed"}});
+                    session->EndScan();
+                }
+                {
+                    std::lock_guard<std::mutex> lock(mutex_);
+                    finished->store(true);
+                }
+                queued_.notify_one();
+            });
+        } catch (...) {
+            scanWorkers_.pop_back();
             node.session->EndScan();
-            node.session->Send(8, {{"error","scan queue full"}});
+            throw;
         }
     };
     callbacks_[3] = [](const MsgNode &node) { node.session->RequestStop(); };
@@ -78,12 +121,17 @@ void LogicSystem::RegisterCallBacks() {
 }
 void LogicSystem::Dispatch() {
     for (;;) {
+        ReapFinishedScans();
         MsgNode node;
         {
             std::unique_lock<std::mutex> lock(mutex_);
-            queued_.wait(lock, [this] { return stopping_ || !messages_.empty(); });
-            if (messages_.empty()) return;
-            node = std::move(messages_.front()); messages_.pop_front();
+            queued_.wait(lock, [this] {
+                return stopping_ || !messages_.empty() || HasCompletedScan();
+            });
+            if (stopping_) return;
+            if (messages_.empty()) continue;
+            node = std::move(messages_.front());
+            messages_.pop_front();
         }
         try {
             if (!node.session->Authenticated() && node.id != 1) {
@@ -95,9 +143,9 @@ void LogicSystem::Dispatch() {
                     node.session->Send(8, {{"error","unsupported message type"}});
                 else callback->second(node);
             }
-        } catch (const std::exception &e) {
-            std::cerr << "Acq logic: " << e.what() << '\n';
-            node.session->Send(8, {{"error",e.what()}});
+        } catch (const std::exception &error) {
+            std::cerr << "Acq logic: " << error.what() << '\n';
+            node.session->Send(8, {{"error",error.what()}});
         }
         node.session->ResumeRead();
     }
